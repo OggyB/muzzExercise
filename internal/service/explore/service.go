@@ -186,17 +186,28 @@ func (s *Service) PutDecision(ctx context.Context, req *pb.PutDecisionRequest) (
 		return nil, svcErr.InvalidArgument("cannot decide on yourself")
 	}
 
-	// write/update decision
-	if err := s.decisionRepo.CreateOrUpdateDecision(ctx, actorID, recipientID, req.GetLikedRecipient()); err != nil {
+	prev, err := s.decisionRepo.CreateOrUpdateDecision(ctx, actorID, recipientID, req.GetLikedRecipient())
+	if err != nil {
 		return nil, svcErr.Map(err)
 	}
 
 	// update cache
 	key := s.appCtx.RedisCache.KeyForLikeCount(recipientID)
-	if req.GetLikedRecipient() {
-		_, _ = s.appCtx.RedisCache.Incr(ctx, key) // like count +1
-	} else {
-		_, _ = s.appCtx.RedisCache.Decr(ctx, key) // like count -1
+	// Update Redis counter based on previous vs new value
+	if prev == nil {
+		// First time a decision is made → increment if it's a like
+		if req.GetLikedRecipient() {
+			_, _ = s.appCtx.RedisCache.Incr(ctx, key) // like count +1
+		}
+	} else if *prev != req.GetLikedRecipient() {
+		// Decision changed → adjust counter accordingly
+		if req.GetLikedRecipient() {
+			// Previously was "unlike", now changed to "like"
+			_, _ = s.appCtx.RedisCache.Incr(ctx, key) // like count +1
+		} else {
+			// Previously was "like", now changed to "unlike"
+			_, _ = s.appCtx.RedisCache.Decr(ctx, key) // like count -1
+		}
 	}
 	_ = s.appCtx.RedisCache.Client.Expire(ctx, key, time.Hour).Err() // refresh TTL
 

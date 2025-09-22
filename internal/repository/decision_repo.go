@@ -2,12 +2,12 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"github.com/oggyb/muzz-exercise/internal/db"
 	"github.com/oggyb/muzz-exercise/internal/utils/pagination"
 	"time"
 
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // DecisionRepository provides data access methods for the Decision model.
@@ -35,18 +35,42 @@ func (r *DecisionRepository) CreateOrUpdateDecision(
 	ctx context.Context,
 	actorID, recipientID uint64,
 	liked bool,
-) error {
-	decision := db.Decision{
-		ActorID:     actorID,
-		RecipientID: recipientID,
-		Liked:       liked,
+) (prev *bool, err error) {
+	var decision db.Decision
+	// Try to find an existing decision between actor and recipient
+	result := r.db.WithContext(ctx).
+		First(&decision, "actor_id = ? AND recipient_id = ?", actorID, recipientID)
+
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		// No existing decision → insert new
+		newDecision := db.Decision{
+			ActorID:     actorID,
+			RecipientID: recipientID,
+			Liked:       liked,
+		}
+		if err := r.db.WithContext(ctx).Create(&newDecision).Error; err != nil {
+			return nil, err
+		}
+		// Return nil because there was no previous value
+		return nil, nil
+	} else if result.Error != nil {
+		// Database error while fetching decision
+		return nil, result.Error
 	}
-	return r.db.WithContext(ctx).
-		Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "actor_id"}, {Name: "recipient_id"}},
-			DoUpdates: clause.AssignmentColumns([]string{"liked"}),
-		}).
-		Create(&decision).Error
+
+	// Save the previous value before updating
+	prevVal := decision.Liked
+
+	// Update only if the value has changed
+	if decision.Liked != liked {
+		decision.Liked = liked
+		if err := r.db.WithContext(ctx).Save(&decision).Error; err != nil {
+			return &prevVal, err
+		}
+	}
+
+	// Return the previous value so the service layer can decide how to update cache
+	return &prevVal, nil
 }
 
 // GetLikers returns all users who liked the given recipient.
