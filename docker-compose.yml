@@ -1,0 +1,60 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: muzz_db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
+      MYSQL_DATABASE: ${DB_NAME:-muzz}
+    command: --default-authentication-plugin=mysql_native_password
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-p${DB_PASSWORD:-root}"]
+      interval: 5s
+      retries: 20
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - muzz_net
+
+  redis:
+    image: redis:7
+    container_name: muzz_redis
+    command: [ "redis-server" ]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      retries: 20
+    volumes:
+      - redis_data:/data
+    networks:
+      - muzz_net
+
+  app:
+    build: .
+    container_name: muzz_grpc
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "50051:50051"
+    networks:
+      - muzz_net
+
+volumes:
+  db_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  muzz_net:
+    driver: bridge
