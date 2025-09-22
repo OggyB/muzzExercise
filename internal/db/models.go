@@ -4,7 +4,16 @@ import (
 	"time"
 )
 
-// User table
+// User represents an application user.
+//
+// Constraints:
+//   - ID: Primary key (auto increment).
+//   - Username: Unique, max length 64.
+//   - Email: Unique, max length 128.
+//   - Active: Soft-active flag.
+//   - LastLoginAt: Last login timestamp.
+//   - Gender: Arbitrary string, max length 16.
+//   - CreatedAt / UpdatedAt: Managed timestamps.
 type User struct {
 	ID           uint64 `gorm:"primaryKey;autoIncrement"`
 	Username     string `gorm:"uniqueIndex;size:64;not null"`
@@ -21,6 +30,10 @@ type User struct {
 //
 // Composite PK: (ActorID, RecipientID)
 //   - Ensures a single row per pair (overwrite guarantee).
+//
+// Foreign Keys:
+//   - ActorID → users.id (CASCADE on delete).
+//   - RecipientID → users.id (CASCADE on delete).
 //
 // Indexes:
 //   - idx_recipient_liked_updated_actor(recipient_id, liked, updated_at DESC, actor_id)
@@ -40,4 +53,8 @@ type Decision struct {
 	Liked       bool      `gorm:"not null;type:tinyint(1);index:idx_recipient_liked_updated_actor,priority:2;index:idx_actor_recipient_liked,priority:3"`
 	CreatedAt   time.Time `gorm:"autoCreateTime"`
 	UpdatedAt   time.Time `gorm:"autoUpdateTime;index:idx_recipient_liked_updated_actor,priority:3,sort:desc"`
+
+	// Foreign key relations (enforces referential integrity).
+	Actor     User `gorm:"foreignKey:ActorID;constraint:OnDelete:CASCADE"`
+	Recipient User `gorm:"foreignKey:RecipientID;constraint:OnDelete:CASCADE"`
 }

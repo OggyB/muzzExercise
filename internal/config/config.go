@@ -8,6 +8,9 @@ import (
 )
 
 type Config struct {
+	App struct {
+		ENV string
+	}
 	Log struct {
 		Level     string
 		Format    string
@@ -39,6 +42,8 @@ type Config struct {
 func New() *Config {
 	cfg := &Config{}
 
+	// App
+	cfg.App.ENV = getEnvDefault("APP_ENV", "development")
 	// Logger
 	cfg.Log.Level = getEnvDefault("LOG_LEVEL", "info")
 	cfg.Log.Format = getEnvDefault("LOG_FORMAT", "text")

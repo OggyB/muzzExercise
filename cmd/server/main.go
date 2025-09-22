@@ -39,6 +39,12 @@ func main() {
 		explore.NewRegistrar(appCtx),
 	}
 
+	if cfg.App.ENV == "development" {
+		if err := db.SeedTestData(database); err != nil {
+			log.Error("failed to seed: %v", err)
+		}
+	}
+
 	addr := cfg.GRPC.Host + ":" + cfg.GRPC.Port
 	log.Info("starting gRPC server", "addr", addr)
 

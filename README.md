@@ -72,22 +72,26 @@ RecipientID uint64    `gorm:"primaryKey;index:idx_recipient_liked_updated_actor,
 Liked       bool      `gorm:"not null;type:tinyint(1);index:idx_recipient_liked_updated_actor,priority:2;index:idx_actor_recipient_liked,priority:3"`
 CreatedAt   time.Time `gorm:"autoCreateTime"`
 UpdatedAt   time.Time `gorm:"autoUpdateTime;index:idx_recipient_liked_updated_actor,priority:3,sort:desc"`
+
+// Foreign key relations (enforces referential integrity).
+Actor     User `gorm:"foreignKey:ActorID;constraint:OnDelete:CASCADE"`
+Recipient User `gorm:"foreignKey:RecipientID;constraint:OnDelete:CASCADE"`
 }
 ```
 
 
 ### Indexing strategy
-- Primary key `(actor_id, recipient_id)` Ensures there is only one row per pair, making overwrites trivial.
-- `idx_recipient_liked_updated_actor (recipient_id, liked, updated_at DESC, actor_id)` Supports efficient “who liked me” queries with pagination.
-- `idx_actor_recipient_liked (actor_id, recipient_id, liked)` Used for quick mutual-like checks.
+- Primary key `(actor_id, recipient_id)` Ensures a single decision per pair of users. New decisions overwrite existing ones.
+- `idx_recipient_liked_updated_actor (recipient_id, liked, updated_at DESC, actor_id)` Optimized for fetching “who liked me” lists with efficient pagination (filter by recipient, order by recent likes).
+- `idx_actor_recipient_liked (actor_id, recipient_id, liked)` Supports constant-time (O(1)) lookups to check if a mutual like exists.
 
 ### Why this works
-This schema is small but covers the key access patterns:
-- Inserting/updating decisions (`PutDecision `)
-- Fetching who liked you (`ListLikedYou` / `ListNewLikedYou`)
-- Counting likes (`CountLikedYou`)
+This schema is intentionally minimal yet supports all the required access patterns for the exercise:
+- Insert/Update decisions  (`PutDecision `)
+- List users who liked me ( like history and new likes ) (`ListLikedYou` / `ListNewLikedYou`)
+- Count total likes received (`CountLikedYou`)
 
-With the right indexes, queries remain performant even if a user has hundreds of thousands of decisions.
+By combining a composite primary key, targeted indexes, and foreign keys to enforce integrity, the design balances correctness, performance, and simplicity.
 
 ## gRPC API
 The Explore service exposes four RPCs. All endpoints are defined in `explore-service.proto`.

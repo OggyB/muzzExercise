@@ -30,15 +30,14 @@ func SeedTestData(db *gorm.DB) error {
 		return fmt.Errorf("failed to clear users: %w", err)
 	}
 
-	// Reset auto-increment sequences (only for MySQL)
+	// Reset auto-increment sequences (mainly for MySQL / SQLite)
 	switch db.Dialector.Name() {
 	case "mysql":
-		db.Exec("ALTER TABLE decisions AUTO_INCREMENT = 1")
 		db.Exec("ALTER TABLE users AUTO_INCREMENT = 1")
+		db.Exec("ALTER TABLE decisions AUTO_INCREMENT = 1")
 	case "sqlite":
-		// Optional: reset SQLite sequences
-		db.Exec("DELETE FROM sqlite_sequence WHERE name = 'decisions'")
 		db.Exec("DELETE FROM sqlite_sequence WHERE name = 'users'")
+		db.Exec("DELETE FROM sqlite_sequence WHERE name = 'decisions'")
 	}
 
 	log.Println("Cleared existing data")
@@ -79,7 +78,7 @@ func SeedTestData(db *gorm.DB) error {
 		for j := 0; j < 12; j++ { // each user decides on ~12 others
 			recipientID := uint64(r.Intn(20) + 1)
 			if uint64(actorID) == recipientID {
-				continue
+				continue // cannot decide on self
 			}
 
 			var actor, recipient User
@@ -90,7 +89,7 @@ func SeedTestData(db *gorm.DB) error {
 				continue
 			}
 			if actor.Gender == recipient.Gender {
-				continue
+				continue // skip same-gender for diversity
 			}
 
 			// like probability 70%
@@ -99,16 +98,19 @@ func SeedTestData(db *gorm.DB) error {
 			// guarantee mutual likes every 3rd pair
 			if counter%3 == 0 {
 				liked = true
-				// also insert reciprocal like
+
+				// insert reciprocal like (recipient → actor)
 				recip := Decision{
 					ActorID:     recipientID,
 					RecipientID: uint64(actorID),
 					Liked:       true,
 				}
-				db.Clauses(clause.OnConflict{
+				if err := db.Clauses(clause.OnConflict{
 					Columns:   []clause.Column{{Name: "actor_id"}, {Name: "recipient_id"}},
 					DoUpdates: clause.AssignmentColumns([]string{"liked", "updated_at"}),
-				}).Create(&recip)
+				}).Create(&recip).Error; err != nil {
+					return fmt.Errorf("failed to seed reciprocal decision: %w", err)
+				}
 			}
 
 			decision := Decision{
@@ -127,38 +129,6 @@ func SeedTestData(db *gorm.DB) error {
 		}
 	}
 
-	return nil
-}
-
-func SeedMinimalTestData(db *gorm.DB) error {
-	// Clear
-	if err := db.Exec("DELETE FROM decisions").Error; err != nil {
-		return err
-	}
-	if err := db.Exec("DELETE FROM users").Error; err != nil {
-		return err
-	}
-
-	// Users
-	users := []User{
-		{ID: 1, Username: "user1", Email: "u1@test.com", PasswordHash: "x", Gender: "male"},
-		{ID: 2, Username: "user2", Email: "u2@test.com", PasswordHash: "x", Gender: "female"},
-		{ID: 3, Username: "user3", Email: "u3@test.com", PasswordHash: "x", Gender: "female"},
-	}
-	if err := db.Create(&users).Error; err != nil {
-		return err
-	}
-
-	// Decisions
-	decisions := []Decision{
-		{ActorID: 1, RecipientID: 2, Liked: true},  // user1 → user2 (like)
-		{ActorID: 2, RecipientID: 1, Liked: true},  // user2 → user1 (like) → mutual
-		{ActorID: 3, RecipientID: 1, Liked: true},  // user3 → user1 (like, non-mutual)
-		{ActorID: 1, RecipientID: 3, Liked: false}, // user1 → user3 (pass)
-	}
-	if err := db.Create(&decisions).Error; err != nil {
-		return err
-	}
-
+	log.Printf("Seeded ~%d decisions.", counter)
 	return nil
 }
